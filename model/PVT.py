@@ -8,7 +8,7 @@ def rs_standing(api, sg, p, t_f):
 
         Parámetros:
         api : float,  gravedad API del petróleo
-        sg  : float, gravedad específica del gas
+        sg  : float, gravedad específica del gas en solucion
         p   : float,  presión del sistema (psi)
         t_f : float,  temperatura del sistema (F)
 
@@ -36,7 +36,7 @@ def bo_standing(rs, sg, sgo, t_f):
 
     Parametros:
     rs: float, solubilidad del gas (scf/bbl)
-    sg: float, gravedad específica del gas
+    sg: float, gravedad específica del gas en solucion
     sgo: float, gravedad específica del gas a condiciones de tanque
     t_f: float, temperatura del sistema (F)
 
@@ -55,14 +55,14 @@ def bo_standing(rs, sg, sgo, t_f):
 #Correlacion de Vasquez-Beggs (1980) para el factor volumetrico del petroleo
 #ya que tiene logaritmos, importamos la libreria math
 import math
-def bo_vasbeg (rs, api, sg, t_f, psep, tsep):
+def bo_vasbeg (rs, api, sgg, t_f, psep, tsep):
     """"
     Calcular el factor volumetrico del petroleo (Bo) usando la correlacion de Vasquez/Beggs
 
     Parametros:
     rs: float, solubilidad del gas (scf/bbl)
     api: float, gravedad API del petroleo
-    sg: float, gravedad especifica del gas
+    sgg: float, gravedad especifica del gas
     t_f: float, temperatura del sistema (F)
     psep: float, presion del separador (psi)
     tsep: float, temperatura del separador (F)
@@ -71,3 +71,20 @@ def bo_vasbeg (rs, api, sg, t_f, psep, tsep):
     bo: float, volumetrico del petroleo (bbl/STB)
     """
     try:
+        # Gas en solución corregido por condiciones de separador
+        if psep <= 0:
+            # evitamos log de valores no validos
+            return None
+        ygs = sgg * (1.0 + 5.912e-5 * api * tsep * math.log(psep / 114.7))
+        if api >= 30>:
+            C1, C2, C3= 4.677e-4, 1.751e-5, -1.811e-8
+        else:
+            C1, C2, C3 = 4.670e-4, 1.100e-5, 1.337E-9
+
+        bo = 1.0 + (C1 * rs) + (t_f - 60) * (api/ygs) * (C2 + (C3 * rs))
+        return bo
+    except Exception as e:
+        print("Error calculando Bo (Vasquez/Beggs):", e)
+        return None
+
+
