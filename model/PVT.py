@@ -41,7 +41,7 @@ def bo_standing(rs, sg, sgo, t_f):
     t_f: float, temperatura del sistema (F)
 
     Retorna:
-    bo: float, volumetrico del petroleo (bbl/STB)
+    bo: float, factor volumetrico del petroleo (bbl/STB)
     """
     try:
         # Ecuación de Standing
@@ -68,7 +68,7 @@ def bo_vasbeg (rs, api, sgg, t_f, psep, tsep):
     tsep: float, temperatura del separador (F)
 
     Retorna:
-    bo: float, volumetrico del petroleo (bbl/STB)
+    bo: float, factor volumetrico del petroleo (bbl/STB)
     """
     try:
         # Gas en solución corregido por condiciones de separador
