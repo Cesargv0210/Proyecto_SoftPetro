@@ -1,11 +1,11 @@
 import os
 import sys
 
-import xlwings as xw
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import xlwings as xw
 
 # =========================
 # Ajustar ruta para importar model.PVT
@@ -17,9 +17,13 @@ if ROOT_DIR not in sys.path:
 
 from model.PVT import (
     rs_standing,
+    rs_velarde,
+    bo_standing,
     bo_vasbeg,
+    co_petrosk,
     co_vasquez_beggs,
     ro_standing,
+    ro_subsaturado,
     mu_beggs_robinson,
     muo_vasquez_beggs,
 )
@@ -36,45 +40,84 @@ def main():
     # =========================
     # 1) LEER INPUTS DESDE SUMMARY
     # =========================
-    pb = float(sh_sum["B5"].value)      # presión de burbuja
-    rsb = float(sh_sum["B6"].value)     # Rs en pb
+    pb = float(sh_sum["B5"].value)      # Presión de burbuja
+    rsb = float(sh_sum["B6"].value)     # Rs en Pb
     api = float(sh_sum["B7"].value)
-    sg_gas = float(sh_sum["B8"].value)
-    pr = float(sh_sum["B9"].value)      # presión actual del yacimiento
-    tr = float(sh_sum["B10"].value)     # temperatura (°F)
+    sg_gas = float(sh_sum["B8"].value)  # γg
+    pr = float(sh_sum["B9"].value)      # Presión de referencia
+    tr = float(sh_sum["B10"].value)     # Temperatura (°F)
 
-    seed = int(sh_sum["B12"].value)     # semilla para NumPy
-    n_points = int(sh_sum["B13"].value) # número de realizaciones
+    seed = int(sh_sum["B12"].value)     # Semilla para NumPy
+    n_points = int(sh_sum["B13"].value) # Número de realizaciones
 
     np.random.seed(seed)
 
-    # Valores adicionales necesarios por las correlaciones
-    sgo = 0.82       # gravedad específica del petróleo a tanque (supuesto)
+    # Valores adicionales para algunas correlaciones
+    sgo = 0.82       # gravedad específica del petróleo a tanque (γo)
     psep = 100.0     # psia
     tsep = 120.0     # °F
 
+    # Densidad en el punto de burbuja: ρob
+    rho_pb = ro_standing(rsb, sg_gas, sgo, tr)
+
     # =========================
-    # 2) AJUSTE DE Rs PARA QUE Rs(pb) = Rsb
+    # 2) FUNCIÓN AUXILIAR: CÁLCULO PVT EN UNA PRESIÓN P
     # =========================
-    rs_pb_corr = rs_standing(api, sg_gas, pb, tr)
-    if rs_pb_corr not in (None, 0):
-        scale_rs = rsb / rs_pb_corr
-    else:
-        scale_rs = 1.0
+    def calc_pvt_at_p(p):
+        """
+        Devuelve: Rs, Bo, Co, rho, mu_o en la presión p,
+        usando una correlación para P <= Pb y otra para P > Pb.
+        """
+
+        # --- 2.1 Rs ---
+        if p <= pb:
+            # Debajo de Pb: Standing
+            rs_p = rs_standing(api, sg_gas, p, tr)
+        else:
+            # Encima de Pb: Velarde (como segunda correlación de Rs)
+            rs_p = rs_velarde(rsb, sg_gas, sgo, pb, p, tr)
+
+        # --- 2.2 Co (compresibilidad) ---
+        if p <= pb:
+            # Región saturada: Vasquez–Beggs
+            co_p = co_vasquez_beggs(rsb, sg_gas, api, tr, p, psep, tsep)
+        else:
+            # Región subsaturada: Petrosky–Farshad
+            co_p = co_petrosk(rsb, sg_gas, p, tr, api)
+
+        # --- 2.3 Bo (factor volumétrico) ---
+        if p <= pb:
+            # Debajo de Pb: Standing
+            bo_p = bo_standing(rs_p, sg_gas, sgo, tr)
+        else:
+            # Encima de Pb: Vasquez–Beggs
+            bo_p = bo_vasbeg(rs_p, api, sg_gas, tr, psep, tsep)
+
+        # --- 2.4 ρo (densidad del petróleo) ---
+        if p <= pb:
+            # Saturado: Standing
+            rho_p = ro_standing(rs_p, sg_gas, sgo, tr)
+        else:
+            # Subsaturado: correlación general ρo = ρob * exp(Co * (P - Pb))
+            rho_p = ro_subsaturado(rho_pb, co_p, p, pb)
+
+        # --- 2.5 μo (viscosidad del petróleo) ---
+        # Primero viscosidad saturada a partir de Rs
+        mu_ob_p = mu_beggs_robinson(api, tr, Rs=rs_p)
+
+        if p <= pb:
+            # Debajo de Pb: viscosidad saturada (μob)
+            mu_o_p = mu_ob_p
+        else:
+            # Encima de Pb: Vasquez–Beggs para petróleo subsaturado
+            mu_o_p = muo_vasquez_beggs(mu_ob_p, p, pb)
+
+        return rs_p, bo_p, co_p, rho_p, mu_o_p
 
     # =========================
     # 3) CÁLCULO DETERMINÍSTICO EN Pr
     # =========================
-    if pr >= pb:
-        rs_pr = rsb
-    else:
-        rs_pr = scale_rs * rs_standing(api, sg_gas, pr, tr)
-
-    bo_pr = bo_vasbeg(rs_pr, api, sg_gas, tr, psep, tsep)
-    co_pr = co_vasquez_beggs(rsb, sg_gas, api, tr, pr, psep, tsep)
-    rho_pr = ro_standing(rs_pr, sg_gas, sgo, tr)
-    mu_ob_pr = mu_beggs_robinson(api, tr, Rs=rs_pr)
-    mu_o_pr = muo_vasquez_beggs(mu_ob_pr, pr, pb)
+    rs_pr, bo_pr, co_pr, rho_pr, mu_o_pr = calc_pvt_at_p(pr)
 
     # Escribir resultados determinísticos en Summary
     sh_sum["C5"].value = "Rs(Pr) [scf/stb]"
@@ -92,65 +135,32 @@ def main():
     # =========================
     # 4) GENERAR PRESIONES ALEATORIAS
     # =========================
-    # Valores aleatorios entre ~atmosférica y la presión Pr
-    P = np.random.uniform(
-        low=max(14.7, pb * 0.05),
-        high=pr,
-        size=n_points,
-    )
+    # Queremos puntos por debajo y por encima de Pb
+    p_min = max(14.7, 0.1 * pb)
+    p_max = max(pb * 1.2, pr)
+
+    P = np.random.uniform(low=p_min, high=p_max, size=n_points)
     T = np.full_like(P, tr, dtype=float)
 
     # =========================
-    # 5) PRE-CÁLCULOS EN EL PUNTO DE BURBUJA
-    # =========================
-    # Bo y rho en pb (para marcar el punto en los gráficos)
-    bob = bo_vasbeg(rsb, api, sg_gas, tr, psep, tsep)
-    rho_pb = ro_standing(rsb, sg_gas, sgo, tr)
-    # μo en pb: en Vasquez–Beggs, μo(pb) = μ_ob
-    mu_ob_pb = mu_beggs_robinson(api, tr, Rs=rsb)
-
-    # =========================
-    # 6) CÁLCULO PVT PARA CADA PRESIÓN
+    # 5) CALCULAR PVT PARA CADA P
     # =========================
     Rs_list = []
     Bo_list = []
     Co_list = []
     Rho_list = []
-    Mu_o_list = []
+    Mu_list = []
 
     for p in P:
-        # ---- Rs saturado / subsaturado con ajuste ----
-        if p >= pb:
-            rs_p = rsb
-        else:
-            rs_p = scale_rs * rs_standing(api, sg_gas, p, tr)
+        rs_p, bo_p, co_p, rho_p, mu_o_p = calc_pvt_at_p(p)
         Rs_list.append(rs_p)
-
-        # ---- Co (Vasquez–Beggs) ----
-        co_p = co_vasquez_beggs(rsb, sg_gas, api, tr, p, psep, tsep)
-        Co_list.append(co_p)
-
-        # ---- Bo usando Bob y compresibilidad ----
-        if p >= pb:
-            bo_p = bob * np.exp(-co_p * (p - pb))
-        else:
-            bo_p = bo_vasbeg(rs_p, api, sg_gas, tr, psep, tsep)
         Bo_list.append(bo_p)
-
-        # ---- Densidad ρo ----
-        if p >= pb:
-            rho_p = rho_pb * (1 + co_p * (p - pb))
-        else:
-            rho_p = ro_standing(rs_p, sg_gas, sgo, tr)
+        Co_list.append(co_p)
         Rho_list.append(rho_p)
-
-        # ---- Viscosidad μo ----
-        mu_ob_p = mu_beggs_robinson(api, tr, Rs=rs_p)
-        mu_o_p = muo_vasquez_beggs(mu_ob_p, p, pb)
-        Mu_o_list.append(mu_o_p)
+        Mu_list.append(mu_o_p)
 
     # =========================
-    # 7) DATAFRAME Y ESCRITURA EN RESULTS
+    # 6) ESCRIBIR TABLA EN HOJA RESULTS
     # =========================
     df = pd.DataFrame(
         {
@@ -160,23 +170,22 @@ def main():
             "Bo (rb/stb)": Bo_list,
             "Co (1/psia)": Co_list,
             "rho (lb/ft3)": Rho_list,
-            "mu_o (cp)": Mu_o_list,
+            "mu_o (cp)": Mu_list,
         }
     )
 
     sh_res["A1"].options(pd.DataFrame, index=False, expand="table").value = df
 
     # =========================
-    # 8) GRÁFICOS CON LÍNEA SEGMENTADA EN PB
+    # 7) GRÁFICOS CON LÍNEA SEGMENTADA EN PB Y LEYENDA
     # =========================
     sns.set_style("whitegrid")
 
-    # Para que la línea se vea ordenada, usamos datos ordenados SOLO para la línea
     P_arr = np.array(P)
     Rs_arr = np.array(Rs_list)
     Bo_arr = np.array(Bo_list)
     Rho_arr = np.array(Rho_list)
-    Mu_arr = np.array(Mu_o_list)
+    Mu_arr = np.array(Mu_list)
 
     sort_idx = np.argsort(P_arr)
     P_sorted = P_arr[sort_idx]
@@ -185,15 +194,17 @@ def main():
     Rho_sorted = Rho_arr[sort_idx]
     Mu_sorted = Mu_arr[sort_idx]
 
-    # ---- 8.1 Rs vs P ----
+    # Punto de burbuja (usando Rsb para el marcador)
+    rs_pb = rsb
+    bo_pb = bo_standing(rsb, sg_gas, sgo, tr)
+    mu_ob_pb = mu_beggs_robinson(api, tr, Rs=rsb)
+
+    # ===== 7.1 Rs vs P =====
     fig1, ax1 = plt.subplots(figsize=(6, 4))
     ax1.scatter(P_arr, Rs_arr, color="blue", s=20, label="Datos")
     ax1.plot(P_sorted, Rs_sorted, color="blue", linewidth=1, label="Tendencia")
 
-    # Punto en pb
-    ax1.scatter(pb, rsb, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
-
-    # Línea vertical segmentada
+    ax1.scatter(pb, rs_pb, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
     ax1.axvline(pb, color="red", linestyle="--", linewidth=1.5, label=f"pb = {pb} psia")
 
     ax1.set_title("Solubilidad del Gas (Rs) vs Presión")
@@ -202,24 +213,24 @@ def main():
     ax1.grid(True)
     ax1.legend()
 
-    # Insertar en Excel
     for pic in sh_sum.pictures:
         if pic.name == "Rs_vs_P":
             pic.delete()
-    sh_sum.pictures.add(fig1, name="Rs_vs_P", update=True,
-                        left=sh_sum.range("H2").left,
-                        top=sh_sum.range("H2").top)
+    sh_sum.pictures.add(
+        fig1,
+        name="Rs_vs_P",
+        update=True,
+        left=sh_sum.range("H2").left,
+        top=sh_sum.range("H2").top,
+    )
     plt.close(fig1)
 
-    # ---- 8.2 Bo vs P ----
+    # ===== 7.2 Bo vs P =====
     fig2, ax2 = plt.subplots(figsize=(6, 4))
     ax2.scatter(P_arr, Bo_arr, color="green", s=20, label="Datos")
     ax2.plot(P_sorted, Bo_sorted, color="green", linewidth=1, label="Tendencia")
 
-    # Punto en pb
-    ax2.scatter(pb, bob, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
-
-    # Línea vertical segmentada
+    ax2.scatter(pb, bo_pb, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
     ax2.axvline(pb, color="red", linestyle="--", linewidth=1.5, label=f"pb = {pb} psia")
 
     ax2.set_title("Factor Volumétrico del Petróleo (Bo) vs Presión")
@@ -231,18 +242,21 @@ def main():
     for pic in sh_sum.pictures:
         if pic.name == "Bo_vs_P":
             pic.delete()
-    sh_sum.pictures.add(fig2, name="Bo_vs_P", update=True,
-                        left=sh_sum.range("H20").left,
-                        top=sh_sum.range("H20").top)
+    sh_sum.pictures.add(
+        fig2,
+        name="Bo_vs_P",
+        update=True,
+        left=sh_sum.range("H20").left,
+        top=sh_sum.range("H20").top,
+    )
     plt.close(fig2)
 
-    # ---- 8.3 Densidad vs P ----
+    # ===== 7.3 ρo vs P =====
     fig3, ax3 = plt.subplots(figsize=(6, 4))
     ax3.scatter(P_arr, Rho_arr, color="orange", s=20, label="Datos")
     ax3.plot(P_sorted, Rho_sorted, color="orange", linewidth=1, label="Tendencia")
 
     ax3.scatter(pb, rho_pb, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
-
     ax3.axvline(pb, color="red", linestyle="--", linewidth=1.5, label=f"pb = {pb} psia")
 
     ax3.set_title("Densidad del Petróleo (ρo) vs Presión")
@@ -254,18 +268,21 @@ def main():
     for pic in sh_sum.pictures:
         if pic.name == "Rho_vs_P":
             pic.delete()
-    sh_sum.pictures.add(fig3, name="Rho_vs_P", update=True,
-                        left=sh_sum.range("H38").left,
-                        top=sh_sum.range("H38").top)
+    sh_sum.pictures.add(
+        fig3,
+        name="Rho_vs_P",
+        update=True,
+        left=sh_sum.range("H38").left,
+        top=sh_sum.range("H38").top,
+    )
     plt.close(fig3)
 
-    # ---- 8.4 Viscosidad vs P ----
+    # ===== 7.4 μo vs P =====
     fig4, ax4 = plt.subplots(figsize=(6, 4))
     ax4.scatter(P_arr, Mu_arr, color="purple", s=20, label="Datos")
     ax4.plot(P_sorted, Mu_sorted, color="purple", linewidth=1, label="Tendencia")
 
     ax4.scatter(pb, mu_ob_pb, color="red", s=70, zorder=10, label="Punto de burbuja (pb)")
-
     ax4.axvline(pb, color="red", linestyle="--", linewidth=1.5, label=f"pb = {pb} psia")
 
     ax4.set_title("Viscosidad del Petróleo (μo) vs Presión")
@@ -277,13 +294,18 @@ def main():
     for pic in sh_sum.pictures:
         if pic.name == "Mu_vs_P":
             pic.delete()
-    sh_sum.pictures.add(fig4, name="Mu_vs_P", update=True,
-                        left=sh_sum.range("H56").left,
-                        top=sh_sum.range("H56").top)
+    sh_sum.pictures.add(
+        fig4,
+        name="Mu_vs_P",
+        update=True,
+        left=sh_sum.range("H56").left,
+        top=sh_sum.range("H56").top,
+    )
     plt.close(fig4)
 
 
 if __name__ == "__main__":
-    # Para probar sin macro (solo si ejecutas este archivo directamente)
+    # Para pruebas directas sin macro
     xw.Book("PVT_App.xlsm").set_mock_caller()
     main()
+
