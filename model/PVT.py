@@ -28,6 +28,98 @@ def rs_standing(api, sg, p, t_f):
         except Exception as e:
             print("Error calculando Rs (Standing, 1947):", e)
             return None
+
+# Correlación de Velarde (1997) para la solubilidad del gas Rs
+
+import math
+def rs_velarde(rsb, yg, yo, pb, p, t_f):
+    """
+    Solubilidad del gas en el petróleo Rs (scf/STB)
+    Correlación de Velarde (1997).
+
+    Parámetros
+    ----------
+    rsb : float
+        Rs en el punto de burbuja (Rsb), scf/STB.
+    yg : float
+        Gravedad específica del gas en solución (γg).
+    yo : float
+        Gravedad específica del petróleo (γo) o alguna función de API,
+        según la forma que use tu diapositiva (si usas API, conviértela antes).
+    pb : float
+        Presión de burbuja, Pb (psia).
+    p : float
+        Presión del sistema, P (psia).
+    t_f : float
+        Temperatura del sistema, T (°F).
+
+    Retorna
+    -------
+    rs : float
+        Solubilidad del gas a la presión P, scf/STB.
+        Devuelve None si ocurre algún problema numérico.
+    """
+    try:
+        # -------- 1) Verificar rangos básicos --------
+        if pb <= 0 or p <= 0:
+            return None
+
+        # -------- 2) Presión reducida Pr --------
+        pr = (p - 0.101) / pb
+        if pr <= 0:
+            return None
+
+        # -------- 3) Término de temperatura que aparece en la correlación --------
+        # En la diapositiva aparece (1.8*T - 459.67)
+        temp_term = 1.8 * t_f - 459.67
+
+        # -------- 4) Coeficientes A0..C4 (PON AQUÍ LOS VALORES DE TU LÁMINA) --------
+        # OJO: estos números son placeholders, reemplázalos por los de tu tabla.
+        A0, A1, A2, A3, A4 = 1.0, 0.0, 0.0, 0.0, 0.0
+        B0, B1, B2, B3, B4 = 1.0, 0.0, 0.0, 0.0, 0.0
+        C0, C1, C2, C3, C4 = 1.0, 0.0, 0.0, 0.0, 0.0
+
+        # -------- 5) Cálculo de α1, α2, α3 según Velarde --------
+        alpha1 = (
+            A0
+            * (yg ** A1)
+            * (yo ** A2)
+            * (temp_term ** A3)
+            * (pb ** A4)
+        )
+
+        alpha2 = (
+            B0
+            * (yg ** B1)
+            * (yo ** B2)
+            * (temp_term ** B3)
+            * (pb ** B4)
+        )
+
+        alpha3 = (
+            C0
+            * (yg ** C1)
+            * (yo ** C2)
+            * (temp_term ** C3)
+            * (pb ** C4)
+        )
+
+        # Para seguridad, podemos limitar alpha1 a [0,1]
+        # ya que se usa como "mezcla" entre dos potencias:
+        alpha1 = max(0.0, min(1.0, alpha1))
+
+        # -------- 6) Rgr y Rs --------
+        rgr = alpha1 * (pr ** alpha2) + (1.0 - alpha1) * (pr ** alpha3)
+
+        # Velarde suele expresar Rs como Rgr * Rsb
+        rs = rgr * rsb
+
+        return rs
+
+    except Exception as e:
+        print("Error calculando Rs (Velarde, 1997):", e)
+        return None
+
 #%% Funcion para Factor volumetrico del petroleo
 #Correlacion de Standing (1981) para el factor volumetrico del petroleo
 def bo_standing(rs, sg, sgo, t_f):
@@ -86,6 +178,7 @@ def bo_vasbeg (rs, api, sgg, t_f, psep, tsep):
     except Exception as e:
         print("Error calculando Bo (Vasquez/Beggs):", e)
         return None
+
 #%% Funcion para la comprensibilidad isotermica del petroleo
 #Correlacion de Petrosky (1993) para la compresibilidad isotermica del petroleo
 def co_petrosk (rsb, sgg, P, t_f, api):
@@ -169,7 +262,7 @@ def co_vasquez_beggs(Rsb, y_g, api, t_f, p, psep, tsep):
         print("Error calculando Co (Vasquez–Beggs, 1980):", e)
         return None
 
-#%% Funcion para la densiada del petroleo
+#%% Funcion para la densidad del petroleo
 #Correlacion de Standing (1947) para la densidad del petroleo po
 def ro_standing(Rs, y_g, y_o, t_f):
     """
@@ -205,6 +298,41 @@ def ro_standing(Rs, y_g, y_o, t_f):
 
     except Exception as e:
         print("Error calculando ρo (Standing, 1947):", e)
+        return None
+
+#%% Funcion para la densiada del petroleo Subsaturado
+def ro_subsaturado(rho_ob, co, p, pb):
+    """
+    Calcular la densidad del petróleo subsaturado (ρo) a una presión P
+
+    Parámetros
+    ----------
+    rho_ob : float
+        Densidad del petróleo en el punto de burbuja, ρob (lb/ft³).
+    co : float
+        Coeficiente de compresibilidad del petróleo, Co (1/psia).
+    p : float
+        Presión actual del sistema, P (psia).
+    pb : float
+        Presión del punto de burbuja, Pb (psia).
+
+    Retorna
+    -------
+    rho_o : float
+        Densidad del petróleo subsaturado en P, ρo (lb/ft³).
+        Devuelve None si ocurre algún error numérico.
+    """
+    try:
+        # Incremento de presión respecto al punto de burbuja
+        delta_p = p - pb
+
+        # Ecuación exponencial de petróleo subsaturado
+        rho_o = rho_ob * math.exp(co * delta_p)
+
+        return rho_o
+
+    except Exception as e:
+        print("Error calculando ρo subsaturado:", e)
         return None
 
 #%% Funcion para la viscosidad del petroleo uo
