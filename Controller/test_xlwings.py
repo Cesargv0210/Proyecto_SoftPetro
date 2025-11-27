@@ -70,7 +70,7 @@ sheet["D7"].value = Bo_pr
 sheet["C8"].value = "Co (1/psia)"
 sheet["D8"].value = Co_pr
 
-#%% 4) Ejemplo con un arreglo de NumPy (sin DataFrame)
+#%% 4) Ejemplo con un arreglo de NumPy
 
 # Arreglo de presiones de prueba
 P_array = np.array([pr, 4000.0, 3000.0, 2000.0, 1000.0, 14.7])
