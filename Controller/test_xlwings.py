@@ -75,7 +75,7 @@ sheet["D8"].value = Co_pr
 # Arreglo de presiones de prueba
 P_array = np.array([pr, 4000.0, 3000.0, 2000.0, 1000.0, 14.7])
 
-# Escribir el arreglo en una columna (por ejemplo desde F5 hacia abajo)
+# Escribir el arreglo en una columna
 sheet["F4"].value = "P (psia) - array prueba"
 sheet["F5"].options(transpose=True).value = P_array
 

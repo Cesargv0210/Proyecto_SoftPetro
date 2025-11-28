@@ -70,14 +70,13 @@ def rs_velarde(rsb, yg, yo, pb, p, t_f):
             return None
 
         # -------- 3) Término de temperatura que aparece en la correlación --------
-        # En la diapositiva aparece (1.8*T - 459.67)
         temp_term = 1.8 * t_f - 459.67
 
-        # -------- 4) Coeficientes A0..C4 (PON AQUÍ LOS VALORES DE TU LÁMINA) --------
-        # OJO: estos números son placeholders, reemplázalos por los de tu tabla.
-        A0, A1, A2, A3, A4 = 1.0, 0.0, 0.0, 0.0, 0.0
-        B0, B1, B2, B3, B4 = 1.0, 0.0, 0.0, 0.0, 0.0
-        C0, C1, C2, C3, C4 = 1.0, 0.0, 0.0, 0.0, 0.0
+        # -------- 4) Coeficientes A0..C4--------
+
+        A0, A1, A2, A3, A4 = 0.000018653, 1.672608, 0.929870, 0.247235, 1.056052
+        B0, B1, B2, B3, B4 = 0.1004, -1.00475, 0.337711, 0.132795, 0.302065
+        C0, C1, C2, C3, C4 = 0.9167, -1.48548, -0.164741, -0.09133, 0.047094
 
         # -------- 5) Cálculo de α1, α2, α3 según Velarde --------
         alpha1 = (
@@ -104,8 +103,8 @@ def rs_velarde(rsb, yg, yo, pb, p, t_f):
             * (pb ** C4)
         )
 
-        # Para seguridad, podemos limitar alpha1 a [0,1]
-        # ya que se usa como "mezcla" entre dos potencias:
+        #limitamos alpha1 a [0,1]
+
         alpha1 = max(0.0, min(1.0, alpha1))
 
         # -------- 6) Rgr y Rs --------
@@ -344,11 +343,6 @@ def mu_beggs_robinson(api, t_f, Rs=None):
     Calcula la viscosidad del petróleo muerto (μ_od) o saturado (μ_ob)
     usando las correlaciones de Beggs–Robinson (1975).
 
-    Si Rs es None:
-        → Retorna μ_od (petróleo muerto).
-    Si Rs tiene un valor:
-        → Calcula internamente μ_od y retorna μ_ob (petróleo saturado).
-
     Parámetros:
     ----------
     api : float
@@ -364,8 +358,7 @@ def mu_beggs_robinson(api, t_f, Rs=None):
     --------
     mu : float
         Viscosidad según el caso:
-        - μ_od si Rs=None
-        - μ_ob si Rs se proporciona
+
     """
 
     try:

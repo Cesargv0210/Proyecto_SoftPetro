@@ -107,7 +107,7 @@ def main():
     print("mu_o(Pr)(Vasquez-Beggs, 1975)    ->", mu_o_pr)
 
     # ------------------------------
-    # 7) Chequeos básicos de sanidad
+    # 7) Chequeos básicos
     # ------------------------------
     print("\n--- Chequeos básicos ---")
     resultados = [

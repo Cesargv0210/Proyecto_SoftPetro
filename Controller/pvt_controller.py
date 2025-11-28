@@ -177,7 +177,7 @@ def main():
     sh_res["A1"].options(pd.DataFrame, index=False, expand="table").value = df
 
     # =========================
-    # 7) GRÁFICOS CON LÍNEA SEGMENTADA EN PB Y LEYENDA
+    # 7) GRÁFICOS
     # =========================
     sns.set_style("whitegrid")
 
@@ -305,7 +305,6 @@ def main():
 
 
 if __name__ == "__main__":
-    # Para pruebas directas sin macro
     xw.Book("PVT_App.xlsm").set_mock_caller()
     main()
 
