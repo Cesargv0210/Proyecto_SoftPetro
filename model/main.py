@@ -1,7 +1,3 @@
-# ============================================
-# main.py  (TEST DEL MÓDULO PVT)
-# Ubicación: carpeta model/
-# ============================================
 
 from PVT import (
     rs_standing,
